@@ -45,6 +45,9 @@ training and evaluation on CIFAR-10/100-C and ImageNet-C.
 1.  Install PyTorch and other required python libraries with:
 
     ```
+    python3 -m venv ./augmix-venv
+    source ./augmix-venv/bin/activate
+    pip install --upgrade pip
     pip install -r requirements.txt
     ```
 
@@ -53,9 +56,11 @@ training and evaluation on CIFAR-10/100-C and ImageNet-C.
     ```
     mkdir -p ./data/cifar
     curl -O https://zenodo.org/record/2535967/files/CIFAR-10-C.tar
+    curl -O https://zenodo.org/record/2535967/files/CIFAR-10-P.tar
     curl -O https://zenodo.org/record/3555552/files/CIFAR-100-C.tar
     tar -xvf CIFAR-100-C.tar -C data/cifar/
     tar -xvf CIFAR-10-C.tar -C data/cifar/
+    tar -xvf CIFAR-10-P.tar -C data/cifar/
     ```
 
 3.  Download ImageNet-C with:
@@ -94,6 +99,24 @@ Weights for a ResNet-50 ImageNet classifier trained with AugMix for 180 epochs a
 [here](https://drive.google.com/file/d/1z-1V3rdFiwqSECz7Wkmn4VJVefJGJGiF/view?usp=sharing).
 
 This model has a 65.3 mean Corruption Error (mCE) and a 77.53% top-1 accuracy on clean ImageNet data.
+
+
+## OMNI (Uni-Siegen) Cluster Helpful Commands
+
+Allocate Workspace: `ws_allocate augmix <duration> -r <number of days> -m <your e-mail address>`
+
+
+List modules: `module list`
+
+Add GPU modules:
+```
+module load GpuModules
+# As per python version
+module load pytorch-py37-cuda11.2-gcc8/1.9.1
+pytorch-py39-cuda11.2-gcc9/1.9.1
+```
+
+Borrow GPU on Cluster: `srun -p gpu --gres=gpu:1 -t 7:59:59 --ntasks=1 --cpus-per-task=8 --mem=10G --pty /bin/bash`
 
 ## Citation
 
