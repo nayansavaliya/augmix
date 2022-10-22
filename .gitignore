@@ -2,3 +2,4 @@ augmix-venv
 data
 CIFAR*.tar
 *.pyc
+snapshots/*

@@ -23,6 +23,7 @@ Example usage:
 from __future__ import print_function
 
 import argparse
+from email.policy import strict
 import os
 import shutil
 import time
@@ -30,6 +31,7 @@ import time
 import augmentations
 from models.cifar.allconv import AllConvNet
 import numpy as np
+from third_party.ConvNext_pytorch.convnext import convnext_tiny
 from third_party.ResNeXt_DenseNet.models.densenet import densenet
 from third_party.ResNeXt_DenseNet.models.resnext import resnext29
 from third_party.WideResNet_pytorch.wideresnet import WideResNet
@@ -40,6 +42,7 @@ import torch.nn.functional as F
 import torchvision
 from torchvision import datasets
 from torchvision import transforms
+from torchvision import models
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -57,8 +60,23 @@ parser.add_argument(
     '-m',
     type=str,
     default='wrn',
-    choices=['wrn', 'allconv', 'densenet', 'resnext'],
+    choices=['wrn', 'allconv', 'densenet', 'resnext','resnet18','resnet18_pretrained','convnext_tiny','convnext_tiny_pretrained'],
     help='Choose architecture.')
+
+parser.add_argument(
+    '--optimizer',
+    type=str,
+    default='sgd',
+    choices=['sgd', 'adamW'],
+    help='Choose optimizer.')
+
+parser.add_argument(
+    '--scheduler',
+    type=str,
+    default='lambda',
+    choices=['lambda', 'cosineannealing'],
+    help='Choose learning rate scheduler.')
+
 # Optimization options
 parser.add_argument(
     '--epochs', '-e', type=int, default=100, help='Number of epochs to train.')
@@ -78,12 +96,14 @@ parser.add_argument(
     type=float,
     default=0.0005,
     help='Weight decay (L2 penalty).')
+
 # WRN Architecture options
 parser.add_argument(
     '--layers', default=40, type=int, help='total number of layers')
 parser.add_argument('--widen-factor', default=2, type=int, help='Widen factor')
 parser.add_argument(
     '--droprate', default=0.0, type=float, help='Dropout probability')
+
 # AugMix options
 parser.add_argument(
     '--mixture-width',
@@ -346,13 +366,27 @@ def main():
     net = AllConvNet(num_classes)
   elif args.model == 'resnext':
     net = resnext29(num_classes=num_classes)
+  elif args.model == 'resnet18':
+    net = models.resnet18(num_classes=num_classes)
+  elif args.model == 'resnet18_pretrained':
+    net = models.resnet18(pretrained=True)
+  elif args.model == 'convnext_tiny':
+    net = convnext_tiny(num_classes=num_classes)
+  elif args.model == 'convnext_tiny_pretrained':
+    net = convnext_tiny(pretrained=True)
 
-  optimizer = torch.optim.SGD(
-      net.parameters(),
-      args.learning_rate,
-      momentum=args.momentum,
-      weight_decay=args.decay,
-      nesterov=True)
+  # Optimizer
+  if args.optimizer == 'sgd':
+    optimizer = torch.optim.SGD(
+        net.parameters(),
+        args.learning_rate,
+        momentum=args.momentum,
+        weight_decay=args.decay,
+        nesterov=True)
+  elif args.optimizer == 'adamW':
+    optimizer = torch.optim.AdamW(
+        net.parameters(),
+        args.learning_rate)
 
   # Distribute model across all visible GPUs
   net = torch.nn.DataParallel(net).cuda()
@@ -366,7 +400,7 @@ def main():
       start_epoch = checkpoint['epoch'] + 1
       best_acc = checkpoint['best_acc']
       net.load_state_dict(checkpoint['state_dict'])
-      optimizer.load_state_dict(checkpoint['optimizer'])
+      optimizer.load_state_dict(checkpoint['optimizer'],strict=False)
       print('Model restored from epoch:', start_epoch)
 
   if args.evaluate:
@@ -379,13 +413,19 @@ def main():
     print('Mean Corruption Error: {:.3f}'.format(100 - 100. * test_c_acc))
     return
 
-  scheduler = torch.optim.lr_scheduler.LambdaLR(
-      optimizer,
-      lr_lambda=lambda step: get_lr(  # pylint: disable=g-long-lambda
-          step,
-          args.epochs * len(train_loader),
-          1,  # lr_lambda computes multiplicative factor
-          1e-6 / args.learning_rate))
+  if args.scheduler == 'lambda':
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer,
+        lr_lambda=lambda step: get_lr(  # pylint: disable=g-long-lambda
+            step,
+            args.epochs * len(train_loader),
+            1,  # lr_lambda computes multiplicative factor
+            1e-6 / args.learning_rate))
+  elif args.scheduler == 'cosineannealing':
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+      optimizer=optimizer,
+      T_max=args.epochs,
+      eta_min= 1e-6 / args.learning_rate)
 
   if not os.path.exists(args.save):
     os.makedirs(args.save)
@@ -444,7 +484,7 @@ def main():
   test_c_acc = test_c(net, test_data, base_c_path,tb)
   print('Mean Corruption Error: {:.3f}'.format(100 - 100. * test_c_acc))
   # log to Tensorboard
-  tb.add_scalars('Mean Corruption Error',{'test_c_acc':100 - 100. * test_c_acc},global_step=1)
+  tb.add_scalars('Mean Corruption Error',{'test_c_acc':100 - 100. * test_c_acc,'modal':args.modal,'optimizer':args.optimizer,'scheduler':args.scheduler},global_step=1)
   tb.close()
 
   with open(log_path, 'a') as f:
