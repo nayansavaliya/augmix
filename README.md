@@ -118,6 +118,10 @@ pytorch-py39-cuda11.2-gcc9/1.9.1
 
 Borrow GPU on Cluster: `srun -p gpu --gres=gpu:1 -t 7:59:59 --ntasks=1 --cpus-per-task=8 --mem=10G --pty /bin/bash`
 
+## Run TensorBoard
+
+`tensorboard --logdir=runs`
+
 ## Citation
 
 If you find this useful for your work, please consider citing

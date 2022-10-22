@@ -37,8 +37,11 @@ from third_party.WideResNet_pytorch.wideresnet import WideResNet
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
+import torchvision
 from torchvision import datasets
 from torchvision import transforms
+
+from torch.utils.tensorboard import SummaryWriter
 
 parser = argparse.ArgumentParser(
     description='Trains a CIFAR Classifier',
@@ -263,7 +266,7 @@ def test(net, test_loader):
       test_loader.dataset)
 
 
-def test_c(net, test_data, base_path):
+def test_c(net, test_data, base_path,tensorboard_summaryWriter=None):
   """Evaluate network on given corrupted dataset."""
   corruption_accs = []
   for corruption in CORRUPTIONS:
@@ -282,6 +285,9 @@ def test_c(net, test_data, base_path):
     corruption_accs.append(test_acc)
     print('{}\n\tTest Loss {:.3f} | Test Error {:.3f}'.format(
         corruption, test_loss, 100 - 100. * test_acc))
+    # log to Tensorboard
+    if(tensorboard_summaryWriter):
+      tensorboard_summaryWriter.add_scalars(corruption,{'test_loss':test_loss,'test_acc':100 - 100. * test_acc},global_step=1)
 
   return np.mean(corruption_accs)
 
@@ -289,6 +295,8 @@ def test_c(net, test_data, base_path):
 def main():
   torch.manual_seed(1)
   np.random.seed(1)
+  # TensorBoard summary writer for logging
+  tb = SummaryWriter(comment='-' + args.model)
 
   # Load datasets
   train_transform = transforms.Compose(
@@ -427,9 +435,17 @@ def main():
         ' Test Error {4:.2f}'
         .format((epoch + 1), int(time.time() - begin_time), train_loss_ema,
                 test_loss, 100 - 100. * test_acc))
+    
+    # log to Tensorboard
+    tb.add_scalar('train_loss_ema',train_loss_ema,epoch + 1)
+    tb.add_scalar('test_loss',test_loss,epoch + 1)
+    tb.add_scalar('test_acc',100 - 100. * test_acc,epoch + 1)
 
-  test_c_acc = test_c(net, test_data, base_c_path)
+  test_c_acc = test_c(net, test_data, base_c_path,tb)
   print('Mean Corruption Error: {:.3f}'.format(100 - 100. * test_c_acc))
+  # log to Tensorboard
+  tb.add_scalars('Mean Corruption Error',{'test_c_acc':100 - 100. * test_c_acc},global_step=1)
+  tb.close()
 
   with open(log_path, 'a') as f:
     f.write('%03d,%05d,%0.6f,%0.5f,%0.2f\n' %
