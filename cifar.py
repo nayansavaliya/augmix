@@ -165,7 +165,7 @@ CORRUPTIONS = [
     'jpeg_compression'
 ]
 
-PERMUTATIONS = [
+PERTURBATIONS = [
     'brightness', 'gaussian_blur', 'gaussian_noise_2', 'gaussian_noise_3','gaussian_noise',
     'motion_blur', 'rotate', 'scale', 'shear', 'shot_noise_2','shot_noise_3','shot_noise',
     'snow', 'spatter', 'speckle_noise_2', 'speckle_noise_3','speckle_noise','tilt',
@@ -318,13 +318,12 @@ def test_c(net, test_data, base_path,tensorboard_summaryWriter=None):
   return np.mean(corruption_accs)
 
 def test_p(net, test_data, base_path,tensorboard_summaryWriter=None):
-  """Evaluate network on given corrupted dataset."""
-  permutation_accs = []
-  for permutation in PERMUTATIONS:
-    # Reference to original data is mutated
-    test_data.data = np.load(base_path + permutation + '.npy')
-    test_data.targets = torch.LongTensor(np.load(base_path + 'labels.npy'))
-
+  """Evaluate network on given perturbated dataset."""
+  perturbation_accs = []
+  for perturbation in PERTURBATIONS:
+    test_data.data = np.load(base_path + perturbation + '.npy')
+    #test_data.targets = torch.LongTensor(np.load(base_path + 'labels.npy'))
+    
     test_loader = torch.utils.data.DataLoader(
         test_data,
         batch_size=args.eval_batch_size,
@@ -333,20 +332,20 @@ def test_p(net, test_data, base_path,tensorboard_summaryWriter=None):
         pin_memory=True)
 
     test_loss, test_acc = test(net, test_loader)
-    permutation_accs.append(test_acc)
+    perturbation_accs.append(test_acc)
     print('{}\n\tTest Loss {:.3f} | Test Error {:.3f}'.format(
-        permutation, test_loss, 100 - 100. * test_acc))
+        perturbation, test_loss, 100 - 100. * test_acc))
     # log to Tensorboard
     if(tensorboard_summaryWriter):
-      tensorboard_summaryWriter.add_scalars(permutation,{'test_loss':test_loss,'test_acc':100 - 100. * test_acc},global_step=1)
+      tensorboard_summaryWriter.add_scalars(perturbation,{'test_loss':test_loss,'test_acc':100 - 100. * test_acc},global_step=1)
 
-  return np.mean(permutation_accs)
+  return np.mean(perturbation_accs)
 
 def main():
   torch.manual_seed(1)
   np.random.seed(1)
   # TensorBoard summary writer for logging
-  tb = SummaryWriter(comment='-' + args.model)
+  tb = SummaryWriter(comment='-' + args.model + '-' + args.optimizer + '-' + args.scheduler)
 
   # Load datasets
   train_transform = transforms.Compose(
@@ -371,7 +370,6 @@ def main():
     test_data = datasets.CIFAR100(
         './data/cifar', train=False, transform=test_transform, download=True)
     base_c_path = './data/cifar/CIFAR-100-C/'
-    base_p_path = './data/cifar/CIFAR-10-P/'
     num_classes = 100
 
   train_data = AugMixDataset(train_data, preprocess, args.no_jsd)
@@ -513,13 +511,15 @@ def main():
     tb.add_scalar('test_loss',test_loss,epoch + 1)
     tb.add_scalar('test_acc',100 - 100. * test_acc,epoch + 1)
 
-  test_c_acc = test_c(net, test_data, base_c_path,tb)
-  print('Mean Corruption Error: {:.3f}'.format(100 - 100. * test_c_acc))
-  test_p_acc = test_c(net, test_data, base_p_path,tb)
-  print('Mean Permutation Error: {:.3f}'.format(100 - 100. * test_p_acc))
-  # log to Tensorboard
-  tb.add_scalars('Mean Corruption Error',{'test_c_acc':100 - 100. * test_c_acc,'modal':args.modal,'optimizer':args.optimizer,'scheduler':args.scheduler},global_step=1)
-  tb.add_scalars('Mean Permutation Error',{'test_c_acc':100 - 100. * test_p_acc,'modal':args.modal,'optimizer':args.optimizer,'scheduler':args.scheduler},global_step=1)
+  # test_c_acc = test_c(net, test_data, base_c_path,tb)
+  # print('Mean Corruption Error: {:.3f}'.format(100 - 100. * test_c_acc))
+  # tb.add_scalars('Mean Corruption Error',{'test_c_acc':100 - 100. * test_c_acc},global_step=1)
+  
+  if args.dataset == 'cifar10':
+    test_p_acc = test_p(net, test_data, base_p_path,tb)
+    print('Mean Perturbation Error: {:.3f}'.format(100 - 100. * test_p_acc))
+    tb.add_scalars('Mean Perturbation Error',{'test_c_acc':100 - 100. * test_p_acc},global_step=1)
+  
   tb.close()
 
   with open(log_path, 'a') as f:
