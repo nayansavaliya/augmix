@@ -39,6 +39,7 @@ from third_party.WideResNet_pytorch.wideresnet import WideResNet
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
+import torch.nn as nn
 import torchvision
 from torchvision import datasets
 from torchvision import transforms
@@ -299,7 +300,6 @@ def test_c(net, test_data, base_path,tensorboard_summaryWriter=None):
     # Reference to original data is mutated
     test_data.data = np.load(base_path + corruption + '.npy')
     test_data.targets = torch.LongTensor(np.load(base_path + 'labels.npy'))
-
     test_loader = torch.utils.data.DataLoader(
         test_data,
         batch_size=args.eval_batch_size,
@@ -317,29 +317,29 @@ def test_c(net, test_data, base_path,tensorboard_summaryWriter=None):
 
   return np.mean(corruption_accs)
 
-def test_p(net, test_data, base_path,tensorboard_summaryWriter=None):
-  """Evaluate network on given perturbated dataset."""
-  perturbation_accs = []
-  for perturbation in PERTURBATIONS:
-    test_data.data = np.load(base_path + perturbation + '.npy')
-    #test_data.targets = torch.LongTensor(np.load(base_path + 'labels.npy'))
-    
-    test_loader = torch.utils.data.DataLoader(
-        test_data,
-        batch_size=args.eval_batch_size,
-        shuffle=False,
-        num_workers=args.num_workers,
-        pin_memory=True)
+# def test_p(net, test_data, base_path,num_classes,tensorboard_summaryWriter=None):
+#   """Evaluate network on given perturbated dataset."""
+#   perturbation_accs = []
+#   for perturbation in PERTURBATIONS:
+#     test_data.data = np.load(base_path + perturbation + '.npy').reshape(-1,32,32,3)
+#     test_data.targets = torch.LongTensor(np.random.randint(0, num_classes, (310000,)))
 
-    test_loss, test_acc = test(net, test_loader)
-    perturbation_accs.append(test_acc)
-    print('{}\n\tTest Loss {:.3f} | Test Error {:.3f}'.format(
-        perturbation, test_loss, 100 - 100. * test_acc))
-    # log to Tensorboard
-    if(tensorboard_summaryWriter):
-      tensorboard_summaryWriter.add_scalars(perturbation,{'test_loss':test_loss,'test_acc':100 - 100. * test_acc},global_step=1)
+#     test_loader = torch.utils.data.DataLoader(
+#         test_data,
+#         batch_size=args.eval_batch_size,
+#         shuffle=False,
+#         num_workers=args.num_workers,
+#         pin_memory=True)
 
-  return np.mean(perturbation_accs)
+#     test_loss, test_acc = test(net, test_loader)
+#     perturbation_accs.append(test_acc)
+#     print('{}\n\tTest Loss {:.3f} | Test Error {:.3f}'.format(
+#         perturbation, test_loss, 100 - 100. * test_acc))
+#     # log to Tensorboard
+#     if(tensorboard_summaryWriter):
+#       tensorboard_summaryWriter.add_scalars(perturbation + '_p',{'test_loss':test_loss,'test_acc':100 - 100. * test_acc},global_step=1)
+
+#   return np.mean(perturbation_accs)
 
 def main():
   torch.manual_seed(1)
@@ -400,11 +400,20 @@ def main():
     net = models.resnet18(num_classes=num_classes)
   elif args.model == 'resnet18_pretrained':
     net = models.resnet18(pretrained=True)
+    num_ftrs = net.fc.in_features
+    net.fc = nn.Linear(num_ftrs,num_classes)
   elif args.model == 'convnext_tiny':
     net = convnext_tiny(num_classes=num_classes)
   elif args.model == 'convnext_tiny_pretrained':
     net = convnext_tiny(pretrained=True)
-
+    num_ftrs = net.head.in_features
+    net.fc = nn.Linear(num_ftrs,num_classes)
+  
+  ## Add model graph to tensorboard
+  # examples = iter(test_loader)
+  # example_data, _ = examples.next()
+  # tb.add_graph(net,example_data)
+  
   # Optimizer
   if args.optimizer == 'sgd':
     optimizer = torch.optim.SGD(
@@ -511,14 +520,14 @@ def main():
     tb.add_scalar('test_loss',test_loss,epoch + 1)
     tb.add_scalar('test_acc',100 - 100. * test_acc,epoch + 1)
 
-  # test_c_acc = test_c(net, test_data, base_c_path,tb)
-  # print('Mean Corruption Error: {:.3f}'.format(100 - 100. * test_c_acc))
-  # tb.add_scalars('Mean Corruption Error',{'test_c_acc':100 - 100. * test_c_acc},global_step=1)
+  test_c_acc = test_c(net, test_data, base_c_path,tb)
+  print('Mean Corruption Error: {:.3f}'.format(100 - 100. * test_c_acc))
+  tb.add_scalars('Mean Corruption Error',{'test_c_acc':100 - 100. * test_c_acc},global_step=1)
   
-  if args.dataset == 'cifar10':
-    test_p_acc = test_p(net, test_data, base_p_path,tb)
-    print('Mean Perturbation Error: {:.3f}'.format(100 - 100. * test_p_acc))
-    tb.add_scalars('Mean Perturbation Error',{'test_c_acc':100 - 100. * test_p_acc},global_step=1)
+  # if args.dataset == 'cifar10':
+  #   test_p_acc = test_p(net, test_data, base_p_path,num_classes,tb)
+  #   print('Mean Perturbation Error: {:.3f}'.format(100 - 100. * test_p_acc))
+  #   tb.add_scalars('Mean Perturbation Error',{'test_p_acc':100 - 100. * test_p_acc},global_step=1)
   
   tb.close()
 
