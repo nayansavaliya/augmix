@@ -116,7 +116,7 @@ module load pytorch-py37-cuda11.2-gcc8/1.9.1
 pytorch-py39-cuda11.2-gcc9/1.9.1
 ```
 
-Borrow GPU on Cluster: `srun -p gpu --gres=gpu:1 -t 7:59:59 --ntasks=1 --cpus-per-task=8 --mem=10G --pty /bin/bash`
+Borrow GPU on Cluster: `srun -p gpu --gres=gpu:1 -t 7:59:59 --ntasks=1 --cpus-per-task=8 --mem=20G --pty /bin/bash`
 
 ## Run TensorBoard
 

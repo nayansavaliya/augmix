@@ -167,10 +167,8 @@ CORRUPTIONS = [
 ]
 
 PERTURBATIONS = [
-    'brightness', 'gaussian_blur', 'gaussian_noise_2', 'gaussian_noise_3','gaussian_noise',
-    'motion_blur', 'rotate', 'scale', 'shear', 'shot_noise_2','shot_noise_3','shot_noise',
-    'snow', 'spatter', 'speckle_noise_2', 'speckle_noise_3','speckle_noise','tilt',
-    'translate','zoom_blur'
+    'brightness','gaussian_noise','motion_blur', 'rotate',
+    'scale','shot_noise','spatter', 'tilt','translate','zoom_blur'
 ]
 
 def get_lr(step, total_steps, lr_max, lr_min):
@@ -317,29 +315,52 @@ def test_c(net, test_data, base_path,tensorboard_summaryWriter=None):
 
   return np.mean(corruption_accs)
 
-# def test_p(net, test_data, base_path,num_classes,tensorboard_summaryWriter=None):
-#   """Evaluate network on given perturbated dataset."""
-#   perturbation_accs = []
-#   for perturbation in PERTURBATIONS:
-#     test_data.data = np.load(base_path + perturbation + '.npy').reshape(-1,32,32,3)
-#     test_data.targets = torch.LongTensor(np.random.randint(0, num_classes, (310000,)))
 
-#     test_loader = torch.utils.data.DataLoader(
-#         test_data,
-#         batch_size=args.eval_batch_size,
-#         shuffle=False,
-#         num_workers=args.num_workers,
-#         pin_memory=True)
+"""Robustness(https://github.com/hendrycks/robustness/blob/master/ImageNet-P/cifar-p-eval.py)."""
+def flip_prob(predictions, noise_perturbation=False):
+    result = 0
+    step_size = 1
+    for vid_preds in predictions:
+        result_for_vid = []
 
-#     test_loss, test_acc = test(net, test_loader)
-#     perturbation_accs.append(test_acc)
-#     print('{}\n\tTest Loss {:.3f} | Test Error {:.3f}'.format(
-#         perturbation, test_loss, 100 - 100. * test_acc))
-#     # log to Tensorboard
-#     if(tensorboard_summaryWriter):
-#       tensorboard_summaryWriter.add_scalars(perturbation + '_p',{'test_loss':test_loss,'test_acc':100 - 100. * test_acc},global_step=1)
+        for i in range(step_size):
+            prev_pred = vid_preds[i]
 
-#   return np.mean(perturbation_accs)
+            for pred in vid_preds[i::step_size][1:]:
+                result_for_vid.append(int(prev_pred != pred))
+                if not noise_perturbation: prev_pred = pred
+
+        result += np.mean(result_for_vid) / len(predictions)
+    return result
+  
+"""Robustness(https://github.com/hendrycks/robustness/blob/master/ImageNet-P/cifar-p-eval.py)."""
+def test_p(net, base_path,num_classes,tensorboard_summaryWriter=None):
+  """Evaluate network on given perturbated dataset."""
+  flip_list = []
+  for perturbation in PERTURBATIONS:
+    dataset = torch.from_numpy(np.float32(np.load(base_path + perturbation +'.npy').transpose((0,1,4,2,3))))/255.
+    loader = torch.utils.data.DataLoader(
+        dataset, batch_size=args.eval_batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
+
+    predictions = []
+    with torch.no_grad():
+      for data in loader:
+          num_vids = data.size(0)
+          data = data.view(-1,3,32,32).cuda()
+
+          output = net(data * 2 - 1)
+
+          for vid in output.view(num_vids, -1, num_classes):
+              predictions.append(vid.argmax(1).to('cpu').numpy())
+      current_flip = flip_prob(predictions, True if 'noise' in perturbation else False)
+      flip_list.append(current_flip)
+      print('\n' + perturbation, 'Flipping Rate')
+      print(current_flip)
+    # log to Tensorboard
+    if(tensorboard_summaryWriter):
+      tensorboard_summaryWriter.add_scalars(perturbation + '_p',{'flipping_rate':current_flip},global_step=1)
+    
+  return np.mean(flip_list)
 
 def main():
   torch.manual_seed(1)
@@ -524,10 +545,10 @@ def main():
   print('Mean Corruption Error: {:.3f}'.format(100 - 100. * test_c_acc))
   tb.add_scalars('Mean Corruption Error',{'test_c_acc':100 - 100. * test_c_acc},global_step=1)
   
-  # if args.dataset == 'cifar10':
-  #   test_p_acc = test_p(net, test_data, base_p_path,num_classes,tb)
-  #   print('Mean Perturbation Error: {:.3f}'.format(100 - 100. * test_p_acc))
-  #   tb.add_scalars('Mean Perturbation Error',{'test_p_acc':100 - 100. * test_p_acc},global_step=1)
+  if args.dataset == 'cifar10':
+    test_fp = test_p(net, base_p_path,num_classes,tb)
+    print('Mean Perturbation Flipping Rate: {:.3f}'.format(test_fp))
+    tb.add_scalars('Mean Perturbation Flipping Rate',{'mean_p_flipping_rate':test_fp},global_step=1)
   
   tb.close()
 
