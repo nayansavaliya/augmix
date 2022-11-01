@@ -367,6 +367,7 @@ def main():
   np.random.seed(1)
   # TensorBoard summary writer for logging
   tb = SummaryWriter(comment='-' + args.model + '-' + args.optimizer + '-' + args.scheduler)
+  print(args.model + '-' + args.optimizer + '-' + args.scheduler)
 
   # Load datasets
   train_transform = transforms.Compose(

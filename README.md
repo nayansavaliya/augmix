@@ -122,6 +122,25 @@ Borrow GPU on Cluster: `srun -p gpu --gres=gpu:1 -t 7:59:59 --ntasks=1 --cpus-pe
 
 `tensorboard --logdir=runs`
 
+## Tests
+```
+python cifar.py -m resnet18 --optimizer adamW --scheduler cosineannealing > res18_adamw_cosine.txt
+
+python cifar.py -m resnet18 --optimizer sgd --scheduler lambda > res18_sgd_lambda.txt
+
+python cifar.py -m resnet18_pretrained --optimizer adamW --scheduler cosineannealing > res18pt_adamw_cosine.txt
+
+python cifar.py -m resnet18_pretrained --optimizer sgd --scheduler lambda > res18pt_sgd_lambda.txt
+
+python cifar.py -m convnext_tiny --optimizer adamW --scheduler cosineannealing > convnext_tiny_adamw_cosine.txt
+
+python cifar.py -m convnext_tiny --optimizer sgd --scheduler lambda > convnext_tiny_sgd_lambda.txt
+
+python cifar.py -m convnext_tiny_pretrained --optimizer adamW --scheduler cosineannealing > convnext_tiny_pt_adamw_cosine.txt
+
+python cifar.py -m convnext_tiny_pretrained --optimizer sgd --scheduler lambda > convnext_tiny_pt_sgd_lambda.txt
+
+```
 ## Citation
 
 If you find this useful for your work, please consider citing
