@@ -132,13 +132,13 @@ python cifar.py -m resnet18_pretrained --optimizer adamW --scheduler cosineannea
 
 python cifar.py -m resnet18_pretrained --optimizer sgd --scheduler lambda > res18pt_sgd_lambda.txt
 
-python cifar.py -m convnext_tiny --optimizer adamW --scheduler cosineannealing > convnext_tiny_adamw_cosine.txt
+python cifar.py -m convnext_tiny --optimizer adamW --scheduler cosineannealing >> convnext_tiny_adamw_cosine.txt
 
 python cifar.py -m convnext_tiny --optimizer sgd --scheduler lambda > convnext_tiny_sgd_lambda.txt
 
 python cifar.py -m convnext_tiny_pretrained --optimizer adamW --scheduler cosineannealing > convnext_tiny_pt_adamw_cosine.txt
 
-python cifar.py -m convnext_tiny_pretrained --optimizer sgd --scheduler lambda > convnext_tiny_pt_sgd_lambda.txt
+python cifar.py -m convnext_tiny_pretrained --optimizer sgd --scheduler lambda >> convnext_tiny_pt_sgd_lambda.txt
 
 ```
 ## Citation
