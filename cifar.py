@@ -367,7 +367,7 @@ def main():
   np.random.seed(1)
   # TensorBoard summary writer for logging
   tb = SummaryWriter(comment='-' + args.model + '-' + args.optimizer + '-' + args.scheduler)
-  print(args.model + '-' + args.optimizer + '-' + args.scheduler)
+  print(args.model + '-' + args.optimizer + '-' + args.scheduler + '-lr' + str(args.learning_rate))
 
   # Load datasets
   train_transform = transforms.Compose(
@@ -447,7 +447,8 @@ def main():
   elif args.optimizer == 'adamW':
     optimizer = torch.optim.AdamW(
         net.parameters(),
-        args.learning_rate)
+        lr=args.learning_rate,
+        weight_decay=args.decay)
 
   # Distribute model across all visible GPUs
   net = torch.nn.DataParallel(net).cuda()
@@ -473,7 +474,7 @@ def main():
     test_c_acc = test_c(net, test_data, base_c_path)
     print('Mean Corruption Error: {:.3f}'.format(100 - 100. * test_c_acc))
     return
-
+  
   if args.scheduler == 'lambda':
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer,
@@ -485,7 +486,7 @@ def main():
   elif args.scheduler == 'cosineannealing':
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
       optimizer=optimizer,
-      T_max=args.epochs,
+      T_max=args.epochs * len(train_loader),
       eta_min= 1e-6 / args.learning_rate)
 
   if not os.path.exists(args.save):
@@ -540,7 +541,7 @@ def main():
     # log to Tensorboard
     tb.add_scalar('train_loss_ema',train_loss_ema,epoch + 1)
     tb.add_scalar('test_loss',test_loss,epoch + 1)
-    tb.add_scalar('test_acc',100 - 100. * test_acc,epoch + 1)
+    tb.add_scalar('test_error',100 - 100. * test_acc,epoch + 1)
 
   test_c_acc = test_c(net, test_data, base_c_path,tb)
   print('Mean Corruption Error: {:.3f}'.format(100 - 100. * test_c_acc))
