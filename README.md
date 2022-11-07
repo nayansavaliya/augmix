@@ -58,9 +58,9 @@ training and evaluation on CIFAR-10/100-C and ImageNet-C.
     curl -O https://zenodo.org/record/2535967/files/CIFAR-10-C.tar
     curl -O https://zenodo.org/record/2535967/files/CIFAR-10-P.tar
     curl -O https://zenodo.org/record/3555552/files/CIFAR-100-C.tar
-    tar -xvf CIFAR-100-C.tar -C data/cifar/
     tar -xvf CIFAR-10-C.tar -C data/cifar/
     tar -xvf CIFAR-10-P.tar -C data/cifar/
+    tar -xvf CIFAR-100-C.tar -C data/cifar/
     ```
 
 3.  Download ImageNet-C with:
@@ -91,6 +91,14 @@ ResNeXt: `python cifar.py -m resnext -e 200`
 
 DenseNet: `python cifar.py -m densenet -e 200 -wd 0.0001`
 
+ResNet-18: `python cifar.py -m resnet18 -e 200 -wd 0.0001 --optimizer sgd --scheduler cosineannealing`
+
+ResNet-18-Pretrained: `python cifar.py -m resnet18_pretrained`
+
+ConvNext-T: `python cifar.py -m convnext_tiny --optimizer adamW --scheduler lambda`
+
+ConvNext-T-Pretrained: `python cifar.py -m convnext_tiny_pretrained`
+
 ResNet-50: `python imagenet.py <path/to/imagenet> <path/to/imagenet-c>`
 
 ## Pretrained weights
@@ -100,49 +108,6 @@ Weights for a ResNet-50 ImageNet classifier trained with AugMix for 180 epochs a
 
 This model has a 65.3 mean Corruption Error (mCE) and a 77.53% top-1 accuracy on clean ImageNet data.
 
-
-## OMNI (Uni-Siegen) Cluster Helpful Commands
-
-Allocate Workspace: `ws_allocate augmix <duration> -r <number of days> -m <your e-mail address>`
-
-
-List modules: `module list`
-
-Add GPU modules:
-```
-module load GpuModules
-# As per python version
-module load pytorch-py37-cuda11.2-gcc8/1.9.1
-pytorch-py39-cuda11.2-gcc9/1.9.1
-```
-
-Borrow GPU on Cluster: `srun -p gpu --gres=gpu:2 -t 7:59:59 --ntasks=1 --cpus-per-task=8 --mem=20G --pty /bin/bash`
-
-## Run TensorBoard
-
-`tensorboard --logdir=runs`
-
-## Tests
-```
-python cifar.py -m resnet18 -lr 0.025 --optimizer adamW --scheduler cosineannealing -s ./snapshots/res18_adamw_cosine2 > res18_adamw_cosine2.txt
-
-python cifar.py -m resnet18 -lr 0.025 --optimizer sgd --scheduler lambda -s ./snapshots/res18_sgd_lambda2 > res18_sgd_lambda2.txt
-
-python cifar.py -m resnet18_pretrained -lr 0.015 --optimizer adamW --scheduler cosineannealing -s ./snapshots/res18pt_adamw_cosine2 > res18pt_adamw_cosine2.txt
-
-python cifar.py -m resnet18_pretrained -lr 0.015 --optimizer sgd --scheduler lambda -s ./snapshots/res18pt_sgd_lambda2 > res18pt_sgd_lambda2.txt
-
-
-
-python cifar.py -m convnext_tiny -lr 0.004 --optimizer adamW --scheduler cosineannealing -s ./snapshots/convnext_tiny_adamw_cosine2 > convnext_tiny_adamw_cosine2.txt
-
-python cifar.py -m convnext_tiny -lr 0.004 --optimizer sgd --scheduler lambda -s ./snapshots/convnext_tiny_sgd_lambda2 > convnext_tiny_sgd_lambda2.txt
-
-python cifar.py -m convnext_tiny_pretrained -lr 0.003 --optimizer adamW --scheduler cosineannealing -s ./snapshots/convnext_tiny_pt_adamw_cosine2 > convnext_tiny_pt_adamw_cosine2.txt
-
-python cifar.py -m convnext_tiny_pretrained -lr 0.003 --optimizer sgd --scheduler lambda -s ./snapshots/convnext_tiny_pt_sgd_lambda2 > convnext_tiny_pt_sgd_lambda2.txt
-
-```
 ## Citation
 
 If you find this useful for your work, please consider citing
