@@ -23,6 +23,7 @@ Example usage:
 from __future__ import print_function
 
 import argparse
+from email.policy import strict
 import os
 import shutil
 import time
@@ -30,6 +31,7 @@ import time
 import augmentations
 from models.cifar.allconv import AllConvNet
 import numpy as np
+from third_party.ConvNext_pytorch.convnext import convnext_tiny
 from third_party.ResNeXt_DenseNet.models.densenet import densenet
 from third_party.ResNeXt_DenseNet.models.resnext import resnext29
 from third_party.WideResNet_pytorch.wideresnet import WideResNet
@@ -37,8 +39,11 @@ from third_party.WideResNet_pytorch.wideresnet import WideResNet
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
+import torch.nn as nn
+
 from torchvision import datasets
 from torchvision import transforms
+from torchvision import models
 
 parser = argparse.ArgumentParser(
     description='Trains a CIFAR Classifier',
@@ -54,8 +59,21 @@ parser.add_argument(
     '-m',
     type=str,
     default='wrn',
-    choices=['wrn', 'allconv', 'densenet', 'resnext'],
+    choices=['wrn', 'allconv', 'densenet', 'resnext','resnet18','resnet18_pretrained','convnext_tiny','convnext_tiny_pretrained'],
     help='Choose architecture.')
+parser.add_argument(
+    '--optimizer',
+    type=str,
+    default='sgd',
+    choices=['sgd', 'adamW'],
+    help='Choose optimizer.')
+parser.add_argument(
+    '--scheduler',
+    type=str,
+    default='lambda',
+    choices=['lambda', 'cosineannealing'],
+    help='Choose learning rate scheduler.')
+
 # Optimization options
 parser.add_argument(
     '--epochs', '-e', type=int, default=100, help='Number of epochs to train.')
@@ -75,12 +93,14 @@ parser.add_argument(
     type=float,
     default=0.0005,
     help='Weight decay (L2 penalty).')
+
 # WRN Architecture options
 parser.add_argument(
     '--layers', default=40, type=int, help='total number of layers')
 parser.add_argument('--widen-factor', default=2, type=int, help='Widen factor')
 parser.add_argument(
     '--droprate', default=0.0, type=float, help='Dropout probability')
+
 # AugMix options
 parser.add_argument(
     '--mixture-width',
@@ -141,7 +161,6 @@ CORRUPTIONS = [
     'brightness', 'contrast', 'elastic_transform', 'pixelate',
     'jpeg_compression'
 ]
-
 
 def get_lr(step, total_steps, lr_max, lr_min):
   """Compute learning rate according to cosine annealing schedule."""
@@ -270,7 +289,6 @@ def test_c(net, test_data, base_path):
     # Reference to original data is mutated
     test_data.data = np.load(base_path + corruption + '.npy')
     test_data.targets = torch.LongTensor(np.load(base_path + 'labels.npy'))
-
     test_loader = torch.utils.data.DataLoader(
         test_data,
         batch_size=args.eval_batch_size,
@@ -282,9 +300,8 @@ def test_c(net, test_data, base_path):
     corruption_accs.append(test_acc)
     print('{}\n\tTest Loss {:.3f} | Test Error {:.3f}'.format(
         corruption, test_loss, 100 - 100. * test_acc))
-
+    
   return np.mean(corruption_accs)
-
 
 def main():
   torch.manual_seed(1)
@@ -293,7 +310,7 @@ def main():
   # Load datasets
   train_transform = transforms.Compose(
       [transforms.RandomHorizontalFlip(),
-       transforms.RandomCrop(32, padding=4)])
+        transforms.RandomCrop(32, padding=4)])
   preprocess = transforms.Compose(
       [transforms.ToTensor(),
        transforms.Normalize([0.5] * 3, [0.5] * 3)])
@@ -338,13 +355,32 @@ def main():
     net = AllConvNet(num_classes)
   elif args.model == 'resnext':
     net = resnext29(num_classes=num_classes)
-
-  optimizer = torch.optim.SGD(
-      net.parameters(),
-      args.learning_rate,
-      momentum=args.momentum,
-      weight_decay=args.decay,
-      nesterov=True)
+  elif args.model == 'resnet18':
+    net = models.resnet18(num_classes=num_classes)
+  elif args.model == 'resnet18_pretrained':
+    net = models.resnet18(pretrained=True)
+    num_ftrs = net.fc.in_features
+    net.fc = nn.Linear(num_ftrs,num_classes)
+  elif args.model == 'convnext_tiny':
+    net = convnext_tiny(num_classes=num_classes)
+  elif args.model == 'convnext_tiny_pretrained':
+    net = convnext_tiny(pretrained=True)
+    num_ftrs = net.head.in_features
+    net.fc = nn.Linear(num_ftrs,num_classes)
+  
+  # Optimizer
+  if args.optimizer == 'sgd':
+    optimizer = torch.optim.SGD(
+        net.parameters(),
+        args.learning_rate,
+        momentum=args.momentum,
+        weight_decay=args.decay,
+        nesterov=True)
+  elif args.optimizer == 'adamW':
+    optimizer = torch.optim.AdamW(
+        net.parameters(),
+        lr=args.learning_rate,
+        weight_decay=args.decay)
 
   # Distribute model across all visible GPUs
   net = torch.nn.DataParallel(net).cuda()
@@ -358,7 +394,7 @@ def main():
       start_epoch = checkpoint['epoch'] + 1
       best_acc = checkpoint['best_acc']
       net.load_state_dict(checkpoint['state_dict'])
-      optimizer.load_state_dict(checkpoint['optimizer'])
+      optimizer.load_state_dict(checkpoint['optimizer'],strict=False)
       print('Model restored from epoch:', start_epoch)
 
   if args.evaluate:
@@ -370,14 +406,20 @@ def main():
     test_c_acc = test_c(net, test_data, base_c_path)
     print('Mean Corruption Error: {:.3f}'.format(100 - 100. * test_c_acc))
     return
-
-  scheduler = torch.optim.lr_scheduler.LambdaLR(
-      optimizer,
-      lr_lambda=lambda step: get_lr(  # pylint: disable=g-long-lambda
-          step,
-          args.epochs * len(train_loader),
-          1,  # lr_lambda computes multiplicative factor
-          1e-6 / args.learning_rate))
+  
+  if args.scheduler == 'lambda':
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer,
+        lr_lambda=lambda step: get_lr(  # pylint: disable=g-long-lambda
+            step,
+            args.epochs * len(train_loader),
+            1,  # lr_lambda computes multiplicative factor
+            1e-6 / args.learning_rate))
+  elif args.scheduler == 'cosineannealing':
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+      optimizer=optimizer,
+      T_max=args.epochs * len(train_loader),
+      eta_min= 1e-6 / args.learning_rate)
 
   if not os.path.exists(args.save):
     os.makedirs(args.save)

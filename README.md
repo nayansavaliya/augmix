@@ -45,6 +45,9 @@ training and evaluation on CIFAR-10/100-C and ImageNet-C.
 1.  Install PyTorch and other required python libraries with:
 
     ```
+    python3 -m venv ./augmix-venv
+    source ./augmix-venv/bin/activate
+    pip install --upgrade pip
     pip install -r requirements.txt
     ```
 
@@ -53,9 +56,11 @@ training and evaluation on CIFAR-10/100-C and ImageNet-C.
     ```
     mkdir -p ./data/cifar
     curl -O https://zenodo.org/record/2535967/files/CIFAR-10-C.tar
+    curl -O https://zenodo.org/record/2535967/files/CIFAR-10-P.tar
     curl -O https://zenodo.org/record/3555552/files/CIFAR-100-C.tar
-    tar -xvf CIFAR-100-C.tar -C data/cifar/
     tar -xvf CIFAR-10-C.tar -C data/cifar/
+    tar -xvf CIFAR-10-P.tar -C data/cifar/
+    tar -xvf CIFAR-100-C.tar -C data/cifar/
     ```
 
 3.  Download ImageNet-C with:
@@ -85,6 +90,14 @@ AllConv: `python cifar.py -m allconv`
 ResNeXt: `python cifar.py -m resnext -e 200`
 
 DenseNet: `python cifar.py -m densenet -e 200 -wd 0.0001`
+
+ResNet-18: `python cifar.py -m resnet18 -e 200 -wd 0.0001 --optimizer sgd --scheduler cosineannealing`
+
+ResNet-18-Pretrained: `python cifar.py -m resnet18_pretrained`
+
+ConvNext-T: `python cifar.py -m convnext_tiny --optimizer adamW --scheduler lambda`
+
+ConvNext-T-Pretrained: `python cifar.py -m convnext_tiny_pretrained`
 
 ResNet-50: `python imagenet.py <path/to/imagenet> <path/to/imagenet-c>`
 
