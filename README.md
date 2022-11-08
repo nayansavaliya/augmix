@@ -142,6 +142,9 @@ python cifar.py -m convnext_tiny_pretrained -lr 0.003 --optimizer adamW --schedu
 
 python cifar.py -m convnext_tiny_pretrained -lr 0.003 --optimizer sgd --scheduler lambda -s ./snapshots/convnext_tiny_pt_sgd_lambda2 > convnext_tiny_pt_sgd_lambda2.txt
 
+
+python cifar.py -m convnext_tiny -lr 0.020 --optimizer sgd --scheduler lambda -s ./snapshots/convnext_tiny_sgd_lambda3 > convnext_tiny_sgd_lambda3.txt
+
 ```
 ## Citation
 
