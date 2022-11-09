@@ -23,6 +23,7 @@ Example usage:
 from __future__ import print_function
 
 import argparse
+from email.policy import strict
 import os
 import shutil
 import time
@@ -30,6 +31,7 @@ import time
 import augmentations
 from models.cifar.allconv import AllConvNet
 import numpy as np
+from third_party.ConvNext_pytorch.convnext import convnext_tiny
 from third_party.ResNeXt_DenseNet.models.densenet import densenet
 from third_party.ResNeXt_DenseNet.models.resnext import resnext29
 from third_party.WideResNet_pytorch.wideresnet import WideResNet
@@ -37,8 +39,13 @@ from third_party.WideResNet_pytorch.wideresnet import WideResNet
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
+import torch.nn as nn
+import torchvision
 from torchvision import datasets
 from torchvision import transforms
+from torchvision import models
+
+from torch.utils.tensorboard import SummaryWriter
 
 parser = argparse.ArgumentParser(
     description='Trains a CIFAR Classifier',
@@ -54,8 +61,23 @@ parser.add_argument(
     '-m',
     type=str,
     default='wrn',
-    choices=['wrn', 'allconv', 'densenet', 'resnext'],
+    choices=['wrn', 'allconv', 'densenet', 'resnext','resnet18','resnet18_pretrained','convnext_tiny','convnext_tiny_pretrained'],
     help='Choose architecture.')
+
+parser.add_argument(
+    '--optimizer',
+    type=str,
+    default='sgd',
+    choices=['sgd', 'adamW'],
+    help='Choose optimizer.')
+
+parser.add_argument(
+    '--scheduler',
+    type=str,
+    default='lambda',
+    choices=['lambda', 'cosineannealing'],
+    help='Choose learning rate scheduler.')
+
 # Optimization options
 parser.add_argument(
     '--epochs', '-e', type=int, default=100, help='Number of epochs to train.')
@@ -75,12 +97,14 @@ parser.add_argument(
     type=float,
     default=0.0005,
     help='Weight decay (L2 penalty).')
+
 # WRN Architecture options
 parser.add_argument(
     '--layers', default=40, type=int, help='total number of layers')
 parser.add_argument('--widen-factor', default=2, type=int, help='Widen factor')
 parser.add_argument(
     '--droprate', default=0.0, type=float, help='Dropout probability')
+
 # AugMix options
 parser.add_argument(
     '--mixture-width',
@@ -142,6 +166,10 @@ CORRUPTIONS = [
     'jpeg_compression'
 ]
 
+PERTURBATIONS = [
+    'brightness','gaussian_noise','motion_blur', 'rotate',
+    'scale','shot_noise','spatter', 'tilt','translate','zoom_blur'
+]
 
 def get_lr(step, total_steps, lr_max, lr_min):
   """Compute learning rate according to cosine annealing schedule."""
@@ -263,14 +291,13 @@ def test(net, test_loader):
       test_loader.dataset)
 
 
-def test_c(net, test_data, base_path):
+def test_c(net, test_data, base_path,tensorboard_summaryWriter=None):
   """Evaluate network on given corrupted dataset."""
   corruption_accs = []
   for corruption in CORRUPTIONS:
     # Reference to original data is mutated
     test_data.data = np.load(base_path + corruption + '.npy')
     test_data.targets = torch.LongTensor(np.load(base_path + 'labels.npy'))
-
     test_loader = torch.utils.data.DataLoader(
         test_data,
         batch_size=args.eval_batch_size,
@@ -282,13 +309,65 @@ def test_c(net, test_data, base_path):
     corruption_accs.append(test_acc)
     print('{}\n\tTest Loss {:.3f} | Test Error {:.3f}'.format(
         corruption, test_loss, 100 - 100. * test_acc))
+    # log to Tensorboard
+    if(tensorboard_summaryWriter):
+      tensorboard_summaryWriter.add_scalars(corruption,{'test_loss':test_loss,'test_acc':100 - 100. * test_acc},global_step=1)
 
   return np.mean(corruption_accs)
 
 
+"""Robustness(https://github.com/hendrycks/robustness/blob/master/ImageNet-P/cifar-p-eval.py)."""
+def flip_prob(predictions, noise_perturbation=False):
+    result = 0
+    step_size = 1
+    for vid_preds in predictions:
+        result_for_vid = []
+
+        for i in range(step_size):
+            prev_pred = vid_preds[i]
+
+            for pred in vid_preds[i::step_size][1:]:
+                result_for_vid.append(int(prev_pred != pred))
+                if not noise_perturbation: prev_pred = pred
+
+        result += np.mean(result_for_vid) / len(predictions)
+    return result
+  
+"""Robustness(https://github.com/hendrycks/robustness/blob/master/ImageNet-P/cifar-p-eval.py)."""
+def test_p(net, base_path,num_classes,tensorboard_summaryWriter=None):
+  """Evaluate network on given perturbated dataset."""
+  flip_list = []
+  for perturbation in PERTURBATIONS:
+    dataset = torch.from_numpy(np.float32(np.load(base_path + perturbation +'.npy').transpose((0,1,4,2,3))))/255.
+    loader = torch.utils.data.DataLoader(
+        dataset, batch_size=args.eval_batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
+
+    predictions = []
+    with torch.no_grad():
+      for data in loader:
+          num_vids = data.size(0)
+          data = data.view(-1,3,32,32).cuda()
+
+          output = net(data * 2 - 1)
+
+          for vid in output.view(num_vids, -1, num_classes):
+              predictions.append(vid.argmax(1).to('cpu').numpy())
+      current_flip = flip_prob(predictions, True if 'noise' in perturbation else False)
+      flip_list.append(current_flip)
+      print('\n' + perturbation, 'Flipping Rate')
+      print(current_flip)
+    # log to Tensorboard
+    if(tensorboard_summaryWriter):
+      tensorboard_summaryWriter.add_scalars(perturbation + '_p',{'flipping_rate':current_flip},global_step=1)
+    
+  return np.mean(flip_list)
+
 def main():
   torch.manual_seed(1)
   np.random.seed(1)
+  # TensorBoard summary writer for logging
+  tb = SummaryWriter(comment='-' + args.model + '-' + args.optimizer + '-' + args.scheduler)
+  print(args.model + '-' + args.optimizer + '-' + args.scheduler + '-lr' + str(args.learning_rate))
 
   # Load datasets
   train_transform = transforms.Compose(
@@ -305,6 +384,7 @@ def main():
     test_data = datasets.CIFAR10(
         './data/cifar', train=False, transform=test_transform, download=True)
     base_c_path = './data/cifar/CIFAR-10-C/'
+    base_p_path = './data/cifar/CIFAR-10-P/'
     num_classes = 10
   else:
     train_data = datasets.CIFAR100(
@@ -338,13 +418,37 @@ def main():
     net = AllConvNet(num_classes)
   elif args.model == 'resnext':
     net = resnext29(num_classes=num_classes)
-
-  optimizer = torch.optim.SGD(
-      net.parameters(),
-      args.learning_rate,
-      momentum=args.momentum,
-      weight_decay=args.decay,
-      nesterov=True)
+  elif args.model == 'resnet18':
+    net = models.resnet18(num_classes=num_classes)
+  elif args.model == 'resnet18_pretrained':
+    net = models.resnet18(pretrained=True)
+    num_ftrs = net.fc.in_features
+    net.fc = nn.Linear(num_ftrs,num_classes)
+  elif args.model == 'convnext_tiny':
+    net = convnext_tiny(num_classes=num_classes)
+  elif args.model == 'convnext_tiny_pretrained':
+    net = convnext_tiny(pretrained=True)
+    num_ftrs = net.head.in_features
+    net.fc = nn.Linear(num_ftrs,num_classes)
+  
+  ## Add model graph to tensorboard
+  # examples = iter(test_loader)
+  # example_data, _ = examples.next()
+  # tb.add_graph(net,example_data)
+  
+  # Optimizer
+  if args.optimizer == 'sgd':
+    optimizer = torch.optim.SGD(
+        net.parameters(),
+        args.learning_rate,
+        momentum=args.momentum,
+        weight_decay=args.decay,
+        nesterov=True)
+  elif args.optimizer == 'adamW':
+    optimizer = torch.optim.AdamW(
+        net.parameters(),
+        lr=args.learning_rate,
+        weight_decay=args.decay)
 
   # Distribute model across all visible GPUs
   net = torch.nn.DataParallel(net).cuda()
@@ -358,7 +462,7 @@ def main():
       start_epoch = checkpoint['epoch'] + 1
       best_acc = checkpoint['best_acc']
       net.load_state_dict(checkpoint['state_dict'])
-      optimizer.load_state_dict(checkpoint['optimizer'])
+      optimizer.load_state_dict(checkpoint['optimizer'],strict=False)
       print('Model restored from epoch:', start_epoch)
 
   if args.evaluate:
@@ -370,14 +474,20 @@ def main():
     test_c_acc = test_c(net, test_data, base_c_path)
     print('Mean Corruption Error: {:.3f}'.format(100 - 100. * test_c_acc))
     return
-
-  scheduler = torch.optim.lr_scheduler.LambdaLR(
-      optimizer,
-      lr_lambda=lambda step: get_lr(  # pylint: disable=g-long-lambda
-          step,
-          args.epochs * len(train_loader),
-          1,  # lr_lambda computes multiplicative factor
-          1e-6 / args.learning_rate))
+  
+  if args.scheduler == 'lambda':
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer,
+        lr_lambda=lambda step: get_lr(  # pylint: disable=g-long-lambda
+            step,
+            args.epochs * len(train_loader),
+            1,  # lr_lambda computes multiplicative factor
+            1e-6 / args.learning_rate))
+  elif args.scheduler == 'cosineannealing':
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+      optimizer=optimizer,
+      T_max=args.epochs * len(train_loader),
+      eta_min= 1e-6 / args.learning_rate)
 
   if not os.path.exists(args.save):
     os.makedirs(args.save)
@@ -427,9 +537,22 @@ def main():
         ' Test Error {4:.2f}'
         .format((epoch + 1), int(time.time() - begin_time), train_loss_ema,
                 test_loss, 100 - 100. * test_acc))
+    
+    # log to Tensorboard
+    tb.add_scalar('train_loss_ema',train_loss_ema,epoch + 1)
+    tb.add_scalar('test_loss',test_loss,epoch + 1)
+    tb.add_scalar('test_error',100 - 100. * test_acc,epoch + 1)
 
-  test_c_acc = test_c(net, test_data, base_c_path)
+  test_c_acc = test_c(net, test_data, base_c_path,tb)
   print('Mean Corruption Error: {:.3f}'.format(100 - 100. * test_c_acc))
+  tb.add_scalars('Mean Corruption Error',{'test_c_acc':100 - 100. * test_c_acc},global_step=1)
+  
+  if args.dataset == 'cifar10':
+    test_fp = test_p(net, base_p_path,num_classes,tb)
+    print('Mean Perturbation Flipping Rate: {:.3f}'.format(test_fp))
+    tb.add_scalars('Mean Perturbation Flipping Rate',{'mean_p_flipping_rate':test_fp},global_step=1)
+  
+  tb.close()
 
   with open(log_path, 'a') as f:
     f.write('%03d,%05d,%0.6f,%0.5f,%0.2f\n' %

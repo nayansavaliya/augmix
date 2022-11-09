@@ -1,0 +1,12 @@
+name: "ConvNeXt"
+description: "PyTorch implementation of ConvNeXt."
+
+third_party {
+  url {
+    type: GIT
+    value: "https://github.com/facebookresearch/ConvNeXt"
+  }
+  version: "048efcea897d999aed302f2639b6270aedf8d4c8"
+  last_upgrade_date { year: 2022 month: 07 day: 24 }
+  license_type: PERMISSIVE
+}
